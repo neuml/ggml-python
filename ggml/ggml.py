@@ -79,52 +79,63 @@ from typing import (
 )
 from typing_extensions import TypeAlias
 
-
 # Load the library
-def load_shared_library(module_name: str, lib_base_name: str):
-    # Construct the paths to the possible shared library names
-    base_path = pathlib.Path(__file__).parent.resolve() / "lib"
-    # Searching for the library in the current directory under the name "libggml" (default name
-    # for ggml) and "ggml" (default name for this repo)
-    lib_names: List[str] = [
-        f"lib{lib_base_name}.so",
-        f"lib{lib_base_name}.dylib",
-        f"{lib_base_name}.dll",
-    ]
-
-    path: Optional[pathlib.Path] = None
-
-    for lib_name in lib_names:
-        try:
-            with importlib_resources.as_file(importlib_resources.files(module_name).joinpath("lib", lib_name)) as p: # type: ignore
-                p = cast(pathlib.Path, p)
-                if os.path.exists(p):
-                    path = p
-                    break
-        except FileNotFoundError:
-            pass
-
-    if path is None:
-        raise FileNotFoundError(
-            f"Shared library with base name '{lib_base_name}' not found"
-        )
+# Copied from https://github.com/abetlen/llama-cpp-python/blob/main/llama_cpp/_ctypes_extensions.py
+def load_shared_library(lib_base_name: str, base_path: pathlib.Path):
+    """Platform independent shared library loader"""
+    # Searching for the library in the current directory under the name "libllama" (default name
+    # for llamacpp) and "llama" (default name for this repo)
+    lib_paths: List[pathlib.Path] = []
+    # Determine the file extension based on the platform
+    if sys.platform.startswith("linux") or sys.platform.startswith("freebsd"):
+        lib_paths += [
+            base_path / f"lib{lib_base_name}.so",
+        ]
+    elif sys.platform == "darwin":
+        lib_paths += [
+            base_path / f"lib{lib_base_name}.so",
+            base_path / f"lib{lib_base_name}.dylib",
+        ]
+    elif sys.platform == "win32":
+        lib_paths += [
+            base_path / f"{lib_base_name}.dll",
+            base_path / f"lib{lib_base_name}.dll",
+        ]
+    else:
+        raise RuntimeError("Unsupported platform")
 
     cdll_args = dict()  # type: ignore
+
     # Add the library directory to the DLL search path on Windows (if needed)
-    if sys.platform == "win32" and sys.version_info >= (3, 8):
-        os.environ["PATH"] = str(base_path) + os.pathsep + os.environ["PATH"]
+    if sys.platform == "win32":
         os.add_dll_directory(str(base_path))
-        cdll_args["winmode"] = 0
+        os.environ["PATH"] = str(base_path) + os.pathsep + os.environ["PATH"]
+
+    if sys.platform == "win32" and sys.version_info >= (3, 8):
+        os.add_dll_directory(str(base_path))
+        if "CUDA_PATH" in os.environ:
+            os.add_dll_directory(os.path.join(os.environ["CUDA_PATH"], "bin"))
+            os.add_dll_directory(os.path.join(os.environ["CUDA_PATH"], "lib"))
+        if "HIP_PATH" in os.environ:
+            os.add_dll_directory(os.path.join(os.environ["HIP_PATH"], "bin"))
+            os.add_dll_directory(os.path.join(os.environ["HIP_PATH"], "lib"))
+        cdll_args["winmode"] = ctypes.RTLD_GLOBAL
 
     # Try to load the shared library, handling potential errors
-    try:
-        return ctypes.CDLL(str(path), **cdll_args)  # type: ignore
-    except Exception as e:
-        raise RuntimeError(f"Failed to load shared library '{path}': {e}")
+    for lib_path in lib_paths:
+        if lib_path.exists():
+            try:
+                return ctypes.CDLL(str(lib_path), **cdll_args)  # type: ignore
+            except Exception as e:
+                raise RuntimeError(f"Failed to load shared library '{lib_path}': {e}")
+
+    raise FileNotFoundError(
+        f"Shared library with base name '{lib_base_name}' not found"
+    )
 
 
 module_name = "ggml"
-lib_base_name = "ggml"
+lib_base_name = pathlib.Path(os.path.abspath(os.path.dirname(__file__))) / "lib"
 lib = load_shared_library(module_name, lib_base_name)
 
 
@@ -359,8 +370,18 @@ ggml_context_p_ctypes = ctypes.c_void_p  # type: ignore
 #     GGML_TYPE_F64     = 28,
 #     GGML_TYPE_IQ1_M   = 29,
 #     GGML_TYPE_BF16    = 30,
-#     GGML_TYPE_COUNT,
+#     // GGML_TYPE_Q4_0_4_4 = 31, support has been removed from gguf files
+#     // GGML_TYPE_Q4_0_4_8 = 32,
+#     // GGML_TYPE_Q4_0_8_8 = 33,
+#     GGML_TYPE_TQ1_0   = 34,
+#     GGML_TYPE_TQ2_0   = 35,
+#     // GGML_TYPE_IQ4_NL_4_4 = 36,
+#     // GGML_TYPE_IQ4_NL_4_8 = 37,
+#     // GGML_TYPE_IQ4_NL_8_8 = 38,
+#     GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
+#     GGML_TYPE_COUNT   = 40,
 # };
+
 GGML_TYPE_F32 = 0
 GGML_TYPE_F16 = 1
 GGML_TYPE_Q4_0 = 2
@@ -390,8 +411,13 @@ GGML_TYPE_I64 = 27
 GGML_TYPE_F64 = 28
 GGML_TYPE_IQ1_M = 29
 GGML_TYPE_BF16 = 30
-GGML_TYPE_COUNT = 31
-
+GGML_TYPE_TQ1_0 = 34
+GGML_TYPE_TQ2_0 = 35
+GGML_TYPE_IQ4_NL_4_4 = 36
+GGML_TYPE_IQ4_NL_4_8 = 37
+GGML_TYPE_IQ4_NL_8_8 = 38
+GGML_TYPE_MXFP4 = 39
+GGML_TYPE_COUNT = 40
 
 # // precision
 # enum ggml_prec {
@@ -1010,32 +1036,6 @@ ggml_cgraph_p: TypeAlias = "ctypes._Pointer[ggml_cgraph]"  # type: ignore
 Can be dereferenced to a [ggml_cgraph][ggml.ggml_cgraph] object using
 the `.contents` attribute."""
 
-
-# struct ggml_scratch {
-#     size_t offs;
-#     size_t size;
-#     void * data;
-# };
-class ggml_scratch(ctypes.Structure):
-    """Scratch memory for ggml
-    
-    Attributes:
-        offs (int): offset
-        size (int): size
-        data (ctypes.c_void_p): data pointer"""
-    
-    if TYPE_CHECKING:
-        offs: int
-        size: int
-        data: Optional[ctypes.c_void_p]
-
-    _fields_ = [
-        ("offs", ctypes.c_size_t),
-        ("size", ctypes.c_size_t),
-        ("data", ctypes.c_void_p),
-    ]
-
-
 # struct ggml_init_params {
 #     // memory pool
 #     size_t mem_size;   // bytes
@@ -1528,15 +1528,6 @@ def ggml_used_mem(ctx: ggml_context_p, /) -> int:
 
     Returns:
         amount of memory used in bytes"""
-    ...
-
-
-# GGML_API size_t  ggml_set_scratch(struct ggml_context * ctx, struct ggml_scratch scratch);
-@ggml_function(
-    "ggml_set_scratch", [ggml_context_p_ctypes, ggml_scratch], ctypes.c_size_t
-)
-def ggml_set_scratch(ctx: ggml_context_p, scratch: ggml_scratch, /) -> int:
-    """Set the scratch buffer for the ggml context."""
     ...
 
 
@@ -4701,45 +4692,6 @@ def ggml_soft_max_ext(
     ...
 
 
-# GGML_API struct ggml_tensor * ggml_soft_max_back(
-#         struct ggml_context * ctx,
-#         struct ggml_tensor  * a,
-#         struct ggml_tensor  * b);
-@ggml_function(
-    "ggml_soft_max_back",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_soft_max_back(
-    ctx: ggml_context_p, a: ggml_tensor_p, b: ggml_tensor_p, /
-) -> ggml_tensor_p:
-    ...
-
-
-# // in-place, returns view(a)
-# GGML_API struct ggml_tensor * ggml_soft_max_back_inplace(
-#         struct ggml_context * ctx,
-#         struct ggml_tensor  * a,
-#         struct ggml_tensor  * b);
-@ggml_function(
-    "ggml_soft_max_back_inplace",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_soft_max_back_inplace(
-    ctx: ggml_context_p, a: ggml_tensor_p, b: ggml_tensor_p, /
-) -> ggml_tensor_p:
-    ...
-
-
 # // rotary position embedding
 # // if mode & 1 == 1, skip n_past elements (NOT SUPPORTED)
 # // if mode & 2 == 1, GPT-NeoX style
@@ -5086,70 +5038,6 @@ def ggml_rope_yarn_corr_dims(
     ...
 
 
-# // rotary position embedding backward, i.e compute dx from dy
-# // a - dy
-# GGML_API struct ggml_tensor * ggml_rope_back(
-#         struct ggml_context * ctx,
-#         struct ggml_tensor  * a,
-#         struct ggml_tensor  * b,
-#         struct ggml_tensor  * c,
-#         int                   n_dims,
-#         int                   mode,
-#         int                   n_ctx,
-#         int                   n_orig_ctx,
-#         float                 freq_base,
-#         float                 freq_scale,
-#         float                 ext_factor,
-#         float                 attn_factor,
-#         float                 beta_fast,
-#         float                 beta_slow,
-#         float                 xpos_base,
-#         bool                  xpos_down);
-@ggml_function(
-    "ggml_rope_back",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_bool,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_rope_back(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    c: ggml_tensor_p,
-    n_dims: Union[ctypes.c_int, int],
-    mode: Union[ctypes.c_int, int],
-    n_ctx: Union[ctypes.c_int, int],
-    n_orig_ctx: Union[ctypes.c_int, int],
-    freq_base: Union[ctypes.c_float, float],
-    freq_scale: Union[ctypes.c_float, float],
-    ext_factor: Union[ctypes.c_float, float],
-    attn_factor: Union[ctypes.c_float, float],
-    beta_fast: Union[ctypes.c_float, float],
-    beta_slow: Union[ctypes.c_float, float],
-    xpos_base: Union[ctypes.c_float, float],
-    xpos_down: Union[ctypes.c_bool, bool],
-    /,
-) -> ggml_tensor_p:
-    """Rotary position embedding backward pass"""
-    ...
-
-
 # // clamp
 # // in-place, returns view(a)
 # GGML_API struct ggml_tensor * ggml_clamp(
@@ -5228,46 +5116,6 @@ def ggml_im2col(
     d1: Union[ctypes.c_int, int],
     is_2D: Union[ctypes.c_bool, bool],
     dst_type: Union[ctypes.c_int, int],
-    /,
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_conv_depthwise_2d(
-#         struct ggml_context * ctx,
-#         struct ggml_tensor  * a,
-#         struct ggml_tensor  * b,
-#         int                  s0,
-#         int                  s1,
-#         int                  p0,
-#         int                  p1,
-#         int                  d0,
-#         int                  d1);
-@ggml_function(
-    "ggml_conv_depthwise_2d",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_conv_depthwise_2d(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    s0: Union[ctypes.c_int, int],
-    s1: Union[ctypes.c_int, int],
-    p0: Union[ctypes.c_int, int],
-    p1: Union[ctypes.c_int, int],
-    d0: Union[ctypes.c_int, int],
-    d1: Union[ctypes.c_int, int],
     /,
 ) -> ggml_tensor_p:
     ...
@@ -6220,554 +6068,8 @@ def ggml_add_rel_pos_inplace(
 ) -> ggml_tensor_p:
     ...
 
-
-# // custom operators (DEPRECATED)
-
-# typedef void (*ggml_unary_op_f32_t)(const int, float *, const float *);
-ggml_unary_op_f32_t = ctypes.CFUNCTYPE(
-    None, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)
-)
-
-# typedef void (*ggml_binary_op_f32_t)(const int, float *, const float *, const float *);
-ggml_binary_op_f32_t = ctypes.CFUNCTYPE(
-    None,
-    ctypes.c_int,
-    ctypes.POINTER(ctypes.c_float),
-    ctypes.POINTER(ctypes.c_float),
-    ctypes.POINTER(ctypes.c_float),
-)
-
-# typedef void (*ggml_custom1_op_f32_t)(struct ggml_tensor *, const struct ggml_tensor *);
-ggml_custom1_op_f32_t = ctypes.CFUNCTYPE(
-    None, ctypes.POINTER(ggml_tensor), ctypes.POINTER(ggml_tensor)
-)
-"""Unary operator function type"""
-
-# typedef void (*ggml_custom2_op_f32_t)(struct ggml_tensor *, const struct ggml_tensor *, const struct ggml_tensor *);
-ggml_custom2_op_f32_t = ctypes.CFUNCTYPE(
-    None,
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-)
-"""Binary operator function type"""
-
-# typedef void (*ggml_custom3_op_f32_t)(struct ggml_tensor *, const struct ggml_tensor *, const struct ggml_tensor *, const struct ggml_tensor *);
-ggml_custom3_op_f32_t = ctypes.CFUNCTYPE(
-    None,
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-)
-"""Ternary operator function type"""
-
-
-# GGML_API struct ggml_tensor * ggml_map_unary_f32(
-#         struct ggml_context        * ctx,
-#         struct ggml_tensor         * a,
-#                ggml_unary_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_unary_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ggml_unary_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_unary_f32(
-    ctx: ggml_context_p, a: ggml_tensor_p, fun: CtypesFuncPointer, /  # type: ignore
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_unary_inplace_f32(
-#         struct ggml_context        * ctx,
-#         struct ggml_tensor         * a,
-#                 ggml_unary_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_unary_inplace_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ggml_unary_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_unary_inplace_f32(
-    ctx: ggml_context_p, a: ggml_tensor_p, fun: CtypesFuncPointer, /  # type: ignore
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_binary_f32(
-#         struct ggml_context         * ctx,
-#         struct ggml_tensor          * a,
-#         struct ggml_tensor          * b,
-#                ggml_binary_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_binary_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_binary_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_binary_f32(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    /,
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_binary_inplace_f32(
-#         struct ggml_context         * ctx,
-#         struct ggml_tensor          * a,
-#         struct ggml_tensor          * b,
-#                 ggml_binary_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_binary_inplace_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_binary_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_binary_inplace_f32(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    /,
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom1_f32(
-#         struct ggml_context          * ctx,
-#         struct ggml_tensor           * a,
-#                 ggml_custom1_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_custom1_f32",
-    [ggml_context_p_ctypes, ctypes.POINTER(ggml_tensor), ggml_custom1_op_f32_t],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom1_f32(
-    ctx: ggml_context_p, a: ggml_tensor_p, fun: CtypesFuncPointer, /  # type: ignore
-) -> ggml_tensor_p:
-    """Custom unary operator on a tensor.
-
-    Example:
-        ```python
-        import ggml
-
-        @ggml.ggml_custom1_op_f32_t
-        def custom_op(b: ggml.tensor_p, a: ggml.tensor_p):
-            # do something with a and copy to b
-            return
-
-        ...
-
-        b = ggml.ggml_map_custom1_f32(ctx, a, custom_op)
-        ```
-
-    Parameters:
-        a: input tensor
-        fun (ggml.ggml_custom1_op_f32_t): function to apply to each element
-
-    Returns:
-        output tensor"""
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom1_inplace_f32(
-#         struct ggml_context          * ctx,
-#         struct ggml_tensor           * a,
-#                 ggml_custom1_op_f32_t   fun);
-def ggml_map_custom1_inplace_f32(
-    ctx: ggml_context_p, a: ggml_tensor_p, fun: "ctypes._CFuncPtr", /  # type: ignore
-) -> ggml_tensor_p:
-    """Custom unary operator on a tensor inplace.
-
-    Parameters:
-        a: input tensor
-        fun (ggml.ggml_custom1_op_f32_t): function to apply to each element
-
-    Returns:
-        output tensor"""
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom2_f32(
-#         struct ggml_context          * ctx,
-#         struct ggml_tensor           * a,
-#         struct ggml_tensor           * b,
-#                 ggml_custom2_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_custom2_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom2_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom2_f32(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    /,
-) -> ggml_tensor_p:
-    """Custom binary operator on two tensors.
-
-    Parameters:
-        a: input tensor
-        b: input tensor
-        fun (ggml.ggml_custom2_op_f32_t): function to apply to each element
-
-    Returns:
-        output tensor"""
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom2_inplace_f32(
-#         struct ggml_context          * ctx,
-#         struct ggml_tensor           * a,
-#         struct ggml_tensor           * b,
-#                 ggml_custom2_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_custom2_inplace_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom2_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom2_inplace_f32(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-) -> ggml_tensor_p:
-    """Custom binary operator on two tensors inplace.
-
-    Parameters:
-        a: input tensor
-        b: input tensor
-        fun (ggml.ggml_custom2_op_f32_t): function to apply to each element
-
-    Returns:
-        output tensor"""
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom3_f32(
-#         struct ggml_context          * ctx,
-#         struct ggml_tensor           * a,
-#         struct ggml_tensor           * b,
-#         struct ggml_tensor           * c,
-#                 ggml_custom3_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_custom3_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom3_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom3_f32(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    c: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-) -> ggml_tensor_p:
-    """Custom ternary operator on three tensors.
-
-    Parameters:
-        a: input tensor
-        b: input tensor
-        c: input tensor
-        fun (ggml.ggml_custom3_op_f32_t): function to apply to each element
-
-    Returns:
-        output tensor"""
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom3_inplace_f32(
-#         struct ggml_context          * ctx,
-#         struct ggml_tensor           * a,
-#         struct ggml_tensor           * b,
-#         struct ggml_tensor           * c,
-#                 ggml_custom3_op_f32_t   fun);
-@ggml_function(
-    "ggml_map_custom3_inplace_f32",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom3_op_f32_t,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom3_inplace_f32(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    c: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-) -> ggml_tensor_p:
-    """Custom ternary operator on three tensors inplace.
-
-    Parameters:
-        a: input tensor
-        b: input tensor
-        c: input tensor
-        fun (ggml.ggml_custom3_op_f32_t): function to apply to each element
-
-    Returns:
-        output tensor"""
-    ...
-
-
-# // custom operators v2
-
-# typedef void (*ggml_custom1_op_t)(struct ggml_tensor * dst , const struct ggml_tensor * a, int ith, int nth, void * userdata);
-ggml_custom1_op_t = ctypes.CFUNCTYPE(
-    None,
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_void_p,
-)
-"""Custom unary operator on a tensor."""
-
-# typedef void (*ggml_custom2_op_t)(struct ggml_tensor * dst , const struct ggml_tensor * a, const struct ggml_tensor * b, int ith, int nth, void * userdata);
-ggml_custom2_op_t = ctypes.CFUNCTYPE(
-    None,
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_void_p,
-)
-"""Custom binary operator on two tensors."""
-
-# typedef void (*ggml_custom3_op_t)(struct ggml_tensor * dst , const struct ggml_tensor * a, const struct ggml_tensor * b, const struct ggml_tensor * c, int ith, int nth, void * userdata);
-ggml_custom3_op_t = ctypes.CFUNCTYPE(
-    None,
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.POINTER(ggml_tensor),
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_void_p,
-)
-"""Custom ternary operator on three tensors."""
-
 # #define GGML_N_TASKS_MAX -1
 GGML_N_TASKS_MAX = -1
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom1(
-#         struct ggml_context   * ctx,
-#         struct ggml_tensor    * a,
-#         ggml_custom1_op_t       fun,
-#         int                     n_tasks,
-#         void                  * userdata);
-@ggml_function(
-    "ggml_map_custom1",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom1_op_t,
-        ctypes.c_int,
-        ctypes.c_void_p,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom1(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    n_tasks: Union[ctypes.c_int, int],
-    userdata: Union[ctypes.c_void_p, int, None],
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom1_inplace(
-#         struct ggml_context   * ctx,
-#         struct ggml_tensor    * a,
-#         ggml_custom1_op_t       fun,
-#         int                     n_tasks,
-#         void                  * userdata);
-@ggml_function(
-    "ggml_map_custom1_inplace",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom1_op_t,
-        ctypes.c_int,
-        ctypes.c_void_p,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom1_inplace(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    n_tasks: Union[ctypes.c_int, int],
-    userdata: Union[ctypes.c_void_p, int, None],
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom2(
-#         struct ggml_context   * ctx,
-#         struct ggml_tensor    * a,
-#         struct ggml_tensor    * b,
-#         ggml_custom2_op_t       fun,
-#         int                     n_tasks,
-#         void                  * userdata);
-@ggml_function(
-    "ggml_map_custom2",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom2_op_t,
-        ctypes.c_int,
-        ctypes.c_void_p,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom2(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    n_tasks: Union[ctypes.c_int, int],
-    userdata: Union[ctypes.c_void_p, int, None],
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom2_inplace(
-#         struct ggml_context   * ctx,
-#         struct ggml_tensor    * a,
-#         struct ggml_tensor    * b,
-#         ggml_custom2_op_t       fun,
-#         int                     n_tasks,
-#         void                  * userdata);
-@ggml_function(
-    "ggml_map_custom2_inplace",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom2_op_t,
-        ctypes.c_int,
-        ctypes.c_void_p,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom2_inplace(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    n_tasks: Union[ctypes.c_int, int],
-    userdata: Union[ctypes.c_void_p, int, None],
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom3(
-#         struct ggml_context   * ctx,
-#         struct ggml_tensor    * a,
-#         struct ggml_tensor    * b,
-#         struct ggml_tensor    * c,
-#         ggml_custom3_op_t       fun,
-#         int                     n_tasks,
-#         void                  * userdata);
-@ggml_function(
-    "ggml_map_custom3",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom3_op_t,
-        ctypes.c_int,
-        ctypes.c_void_p,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom3(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    c: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    n_tasks: Union[ctypes.c_int, int],
-    userdata: Union[ctypes.c_void_p, int, None],
-) -> ggml_tensor_p:
-    ...
-
-
-# GGML_API struct ggml_tensor * ggml_map_custom3_inplace(
-#         struct ggml_context   * ctx,
-#         struct ggml_tensor    * a,
-#         struct ggml_tensor    * b,
-#         struct ggml_tensor    * c,
-#         ggml_custom3_op_t       fun,
-#         int                     n_tasks,
-#         void                  * userdata);
-@ggml_function(
-    "ggml_map_custom3_inplace",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_tensor),
-        ggml_custom3_op_t,
-        ctypes.c_int,
-        ctypes.c_void_p,
-    ],
-    ctypes.POINTER(ggml_tensor),
-)
-def ggml_map_custom3_inplace(
-    ctx: ggml_context_p,
-    a: ggml_tensor_p,
-    b: ggml_tensor_p,
-    c: ggml_tensor_p,
-    fun: CtypesFuncPointer,  # type: ignore
-    n_tasks: Union[ctypes.c_int, int],
-    userdata: Union[ctypes.c_void_p, int, None],
-) -> ggml_tensor_p:
-    ...
-
 
 # // loss function
 
@@ -7113,40 +6415,6 @@ def ggml_graph_get_tensor(
     ...
 
 
-# GGML_API void                 ggml_graph_export(const struct ggml_cgraph * cgraph, const char * fname);
-@ggml_function(
-    "ggml_graph_export",
-    [
-        ctypes.POINTER(ggml_cgraph),
-        ctypes.c_char_p,
-    ],
-    None,
-)
-def ggml_graph_export(
-    cgraph: ggml_cgraph_p,
-    fname: bytes,
-):
-    ...
-
-
-# GGML_API struct ggml_cgraph * ggml_graph_import(const char * fname, struct ggml_context ** ctx_data, struct ggml_context ** ctx_eval);
-@ggml_function(
-    "ggml_graph_import",
-    [
-        ctypes.c_char_p,
-        ctypes.POINTER(ggml_context_p_ctypes),
-        ctypes.POINTER(ggml_context_p_ctypes),
-    ],
-    ctypes.POINTER(ggml_cgraph),
-)
-def ggml_graph_import(
-    fname: bytes,
-    ctx_data: "ctypes._Pointer[ggml_context_p]",  # type: ignore
-    ctx_eval: "ctypes._Pointer[ggml_context_p]",  # type: ignore
-) -> ggml_cgraph_p:
-    ...
-
-
 # // print info and performance information for the graph
 # GGML_API void ggml_graph_print(const struct ggml_cgraph * cgraph);
 @ggml_function("ggml_graph_print", [ctypes.POINTER(ggml_cgraph)], None)
@@ -7171,39 +6439,6 @@ def ggml_graph_dump_dot(
     gb: ggml_cgraph_p,
     gf: ggml_cgraph_p,
     filename: bytes,
-):
-    ...
-
-
-# // build gradient checkpointing backward graph gb for gf using provided checkpoints
-# // gb_tmp will contain original backward graph with rewritten backward process nodes,
-# // but without the second forward pass nodes.
-# GGML_API void ggml_build_backward_gradient_checkpointing(
-#         struct ggml_context   * ctx,
-#         struct ggml_cgraph    * gf,
-#         struct ggml_cgraph    * gb,
-#         struct ggml_cgraph    * gb_tmp,
-#         struct ggml_tensor  * * checkpoints,
-#         int                     n_checkpoints);
-@ggml_function(
-    "ggml_build_backward_gradient_checkpointing",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_cgraph),
-        ctypes.POINTER(ggml_cgraph),
-        ctypes.POINTER(ggml_cgraph),
-        ctypes.POINTER(ctypes.POINTER(ggml_tensor)),
-        ctypes.c_int,
-    ],
-    None,
-)
-def ggml_build_backward_gradient_checkpointing(
-    ctx: ggml_context_p,
-    gf: ggml_cgraph_p,
-    gb: ggml_cgraph_p,
-    gb_tmp: ggml_cgraph_p,
-    checkpoints: "ctypes._Pointer[ggml_tensor_p]",  # type: ignore
-    n_checkpoints: Union[ctypes.c_int, int],
 ):
     ...
 
@@ -7485,28 +6720,6 @@ def ggml_opt_default_params(type: Union[ctypes.c_int, bool]) -> ggml_opt_params:
     ...
 
 
-# // optimize the function defined by the tensor f
-# GGML_API enum ggml_opt_result ggml_opt(
-#         struct ggml_context * ctx,
-#         struct ggml_opt_params params,
-#         struct ggml_tensor * f);
-@ggml_function(
-    "ggml_opt",
-    [
-        ggml_context_p_ctypes,
-        ggml_opt_params,
-        ctypes.POINTER(ggml_tensor),
-    ],
-    ctypes.c_int,
-)
-def ggml_opt(
-    ctx: ggml_context_p,
-    params: ggml_opt_params,
-    f: ggml_tensor_p,
-) -> int:
-    ...
-
-
 # // initialize optimizer context
 # GGML_API void ggml_opt_init(
 #         struct ggml_context     * ctx,
@@ -7529,62 +6742,6 @@ def ggml_opt_init(
     params: ggml_opt_params,
     nx: Union[ctypes.c_int64, int],
 ):
-    ...
-
-
-# // continue optimizing the function defined by the tensor f
-# GGML_API enum ggml_opt_result ggml_opt_resume(
-#         struct ggml_context * ctx,
-#         struct ggml_opt_context * opt,
-#         struct ggml_tensor * f);
-@ggml_function(
-    "ggml_opt_resume",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_opt_context),
-        ctypes.POINTER(ggml_tensor),
-    ],
-    ctypes.c_int,
-)
-def ggml_opt_resume(
-    ctx: ggml_context_p,
-    opt: "ctypes._Pointer[ggml_opt_context]",  # type: ignore
-    f: ggml_tensor_p,
-) -> int:
-    ...
-
-
-# // continue optimizing the function defined by the tensor f
-# GGML_API enum ggml_opt_result ggml_opt_resume_g(
-#         struct ggml_context * ctx,
-#         struct ggml_opt_context * opt,
-#         struct ggml_tensor * f,
-#         struct ggml_cgraph * gf,
-#         struct ggml_cgraph * gb,
-#         ggml_opt_callback callback,
-#         void * callback_data);
-@ggml_function(
-    "ggml_opt_resume_g",
-    [
-        ggml_context_p_ctypes,
-        ctypes.POINTER(ggml_opt_context),
-        ctypes.POINTER(ggml_tensor),
-        ctypes.POINTER(ggml_cgraph),
-        ctypes.POINTER(ggml_cgraph),
-        ggml_opt_callback,
-        ctypes.c_void_p,
-    ],
-    ctypes.c_int,
-)
-def ggml_opt_resume_g(
-    ctx: ggml_context_p,
-    opt: "ctypes._Pointer[ggml_opt_context]",  # type: ignore
-    f: ggml_tensor_p,
-    gf: ggml_cgraph_p,
-    gb: ggml_cgraph_p,
-    callback: "ctypes._CFuncPtr[None, ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_bool)]",  # type: ignore
-    callback_data: Union[ctypes.c_void_p, int, None],
-) -> int:
     ...
 
 
@@ -7829,20 +6986,6 @@ def gguf_get_alignment(
 def gguf_get_data_offset(
     ctx: gguf_context_p,
 ) -> int:
-    ...
-
-
-# GGML_API void * gguf_get_data       (const struct gguf_context * ctx);
-@ggml_function(
-    "gguf_get_data",
-    [
-        gguf_context_p_ctypes,
-    ],
-    ctypes.c_void_p,
-)
-def gguf_get_data(
-    ctx: gguf_context_p,
-) -> Optional[int]:
     ...
 
 
@@ -8741,12 +7884,6 @@ def ggml_cpu_has_arm_fma() -> int:
     ...
 
 
-# GGML_API int ggml_cpu_has_metal      (void);
-@ggml_function("ggml_cpu_has_metal", [], ctypes.c_int)
-def ggml_cpu_has_metal() -> int:
-    ...
-
-
 # GGML_API int ggml_cpu_has_f16c       (void);
 @ggml_function("ggml_cpu_has_f16c", [], ctypes.c_int)
 def ggml_cpu_has_f16c() -> int:
@@ -8765,36 +7902,6 @@ def ggml_cpu_has_wasm_simd() -> int:
     ...
 
 
-# GGML_API int ggml_cpu_has_blas       (void);
-@ggml_function("ggml_cpu_has_blas", [], ctypes.c_int)
-def ggml_cpu_has_blas() -> int:
-    ...
-
-
-# GGML_API int ggml_cpu_has_cuda       (void);
-@ggml_function("ggml_cpu_has_cuda", [], ctypes.c_int)
-def ggml_cpu_has_cuda() -> int:
-    ...
-
-
-# GGML_API int ggml_cpu_has_vulkan     (void);
-@ggml_function("ggml_cpu_has_vulkan", [], ctypes.c_int)
-def ggml_cpu_has_vulkan() -> int:
-    ...
-
-
-# GGML_API int ggml_cpu_has_kompute    (void);
-@ggml_function("ggml_cpu_has_kompute", [], ctypes.c_int)
-def ggml_cpu_has_kompute() -> int:
-    ...
-
-
-# GGML_API int ggml_cpu_has_gpublas    (void);
-@ggml_function("ggml_cpu_has_gpublas", [], ctypes.c_int)
-def ggml_cpu_has_gpublas() -> int:
-    ...
-
-
 # GGML_API int ggml_cpu_has_sse3       (void);
 @ggml_function("ggml_cpu_has_sse3", [], ctypes.c_int)
 def ggml_cpu_has_sse3() -> int:
@@ -8804,12 +7911,6 @@ def ggml_cpu_has_sse3() -> int:
 # GGML_API int ggml_cpu_has_ssse3      (void);
 @ggml_function("ggml_cpu_has_ssse3", [], ctypes.c_int)
 def ggml_cpu_has_ssse3() -> int:
-    ...
-
-
-# GGML_API int ggml_cpu_has_sycl       (void);
-@ggml_function("ggml_cpu_has_sycl", [], ctypes.c_int)
-def ggml_cpu_has_sycl() -> int:
     ...
 
 
@@ -8917,14 +8018,6 @@ class ggml_type_traits_t(ctypes.Structure):
         ("vec_dot_type", ctypes.c_int),
         ("nrows", ctypes.c_int64),
     ]
-
-
-# GGML_API ggml_type_traits_t ggml_internal_get_type_traits(enum ggml_type type);
-@ggml_function("ggml_internal_get_type_traits", [ctypes.c_int], ggml_type_traits_t)
-def ggml_internal_get_type_traits(
-    type: Union[ctypes.c_int, int], /
-) -> ggml_type_traits_t:
-    ...
 
 
 #####################################################
@@ -9711,6 +8804,38 @@ def ggml_backend_event_wait(
 ):
     ...
 
+# // backend device
+
+#enum ggml_backend_dev_type {
+#    // CPU device using system memory
+#    GGML_BACKEND_DEVICE_TYPE_CPU,
+#    // GPU device using dedicated memory
+#    GGML_BACKEND_DEVICE_TYPE_GPU,
+#    // integrated GPU device using host memory
+#    GGML_BACKEND_DEVICE_TYPE_IGPU,
+#    // accelerator devices intended to be used together with the CPU backend (e.g. BLAS or AMX)
+#    GGML_BACKEND_DEVICE_TYPE_ACCEL
+#}
+
+GGML_BACKEND_DEVICE_TYPE_CPU = 0
+GGML_BACKEND_DEVICE_TYPE_GPU = 1
+GGML_BACKEND_DEVICE_TYPE_IGPU = 2
+GGML_BACKEND_DEVICE_TYPE_ACCEL = 3
+
+
+# Direct backend (stream) initialization
+
+# GGML_API ggml_backend_t ggml_backend_init_by_type(enum ggml_backend_dev_type type, const char * params);
+@ggml_function("ggml_backend_init_by_type", [ctypes.c_int, ctypes.c_char_p], ggml_backend_t_ctypes)
+def ggml_backend_init_by_type(type: Union[ctypes.c_int, int], params: bytes) -> Optional[ggml_backend_t]:
+    ...
+
+
+# GGML_API ggml_backend_t ggml_backend_init_best(void);
+@ggml_function("ggml_backend_init_best", None, ggml_backend_t_ctypes)
+def ggml_backend_init_best() -> Optional[ggml_backend_t]:
+    ...
+
 
 # //
 # // CPU backend
@@ -9791,81 +8916,6 @@ if hasattr(lib, "ggml_backend_cpu_hbm_buffer_type"):
     ggml_backend_cpu_hbm_buffer_type = lib.ggml_backend_cpu_hbm_buffer_type
     ggml_backend_cpu_hbm_buffer_type.argtypes = []
     ggml_backend_cpu_hbm_buffer_type.restype = ggml_backend_buffer_type_t
-
-# //
-# // Backend registry
-# //
-
-# // The backend registry is a registry of all the available backends, and allows initializing backends in a generic way
-
-
-# GGML_API size_t                     ggml_backend_reg_get_count(void);
-@ggml_function("ggml_backend_reg_get_count", [], ctypes.c_size_t)
-def ggml_backend_reg_get_count() -> int:
-    ...
-
-
-# GGML_API size_t                     ggml_backend_reg_find_by_name(const char * name);
-@ggml_function("ggml_backend_reg_find_by_name", [ctypes.c_char_p], ctypes.c_size_t)
-def ggml_backend_reg_find_by_name(
-    name: bytes,
-) -> int:
-    ...
-
-
-# GGML_API ggml_backend_t             ggml_backend_reg_init_backend_from_str(const char * backend_str); // str is name[:params]
-@ggml_function(
-    "ggml_backend_reg_init_backend_from_str", [ctypes.c_char_p], ggml_backend_t
-)
-def ggml_backend_reg_init_backend_from_str(
-    backend_str: bytes,
-) -> Optional[ggml_backend_t]:
-    ...
-
-
-# GGML_API const char *               ggml_backend_reg_get_name(size_t i);
-@ggml_function("ggml_backend_reg_get_name", [ctypes.c_size_t], ctypes.c_char_p)
-def ggml_backend_reg_get_name(
-    i: Union[ctypes.c_size_t, int],
-) -> bytes:
-    ...
-
-
-# GGML_API ggml_backend_t             ggml_backend_reg_init_backend(size_t i, const char * params); // params is backend-specific
-@ggml_function(
-    "ggml_backend_reg_init_backend", [ctypes.c_size_t, ctypes.c_char_p], ggml_backend_t
-)
-def ggml_backend_reg_init_backend(
-    i: Union[ctypes.c_size_t, int],
-    params: bytes,
-) -> Optional[ggml_backend_t]:
-    ...
-
-
-# GGML_API ggml_backend_buffer_type_t ggml_backend_reg_get_default_buffer_type(size_t i);
-@ggml_function(
-    "ggml_backend_reg_get_default_buffer_type",
-    [ctypes.c_size_t],
-    ggml_backend_buffer_type_t,
-)
-def ggml_backend_reg_get_default_buffer_type(
-    i: Union[ctypes.c_size_t, int],
-) -> Optional[ggml_backend_buffer_type_t]:
-    ...
-
-
-# GGML_API ggml_backend_buffer_t      ggml_backend_reg_alloc_buffer(size_t i, size_t size);
-@ggml_function(
-    "ggml_backend_reg_alloc_buffer",
-    [ctypes.c_size_t, ctypes.c_size_t],
-    ggml_backend_buffer_t,
-)
-def ggml_backend_reg_alloc_buffer(
-    i: Union[ctypes.c_size_t, int],
-    size: Union[ctypes.c_size_t, int],
-) -> Optional[ggml_backend_buffer_t]:
-    ...
-
 
 # //
 # // Backend scheduler
@@ -10807,22 +9857,6 @@ def ggml_backend_cuda_unregister_host_buffer(
     ...
 
 
-# GGML_API void ggml_backend_cuda_log_set_callback(ggml_log_callback log_callback, void * user_data);
-@ggml_function(
-    "ggml_backend_cuda_log_set_callback",
-    [
-        ggml_log_callback,
-        ctypes.c_void_p,
-    ],
-    None,
-    enabled=GGML_USE_CUDA,
-)
-def ggml_backend_cuda_log_set_callback(
-    log_callback, user_data: Union[ctypes.c_void_p, int, None], /  # type: ignore
-):
-    ...
-
-
 #####################################################
 # GGML METAL API
 # source: src/ggml-metal.h
@@ -10840,22 +9874,6 @@ GGML_METAL_MAX_BUFFERS = 64
 # // backend API
 # // user-code should use only these functions
 # //
-
-
-# GGML_API void ggml_backend_metal_log_set_callback(ggml_log_callback log_callback, void * user_data);
-@ggml_function(
-    "ggml_backend_metal_log_set_callback",
-    [
-        ggml_log_callback,
-        ctypes.c_void_p,
-    ],
-    None,
-    enabled=GGML_USE_METAL,
-)
-def ggml_backend_metal_log_set_callback(
-    log_callback, user_data: Union[ctypes.c_void_p, int, None], /  # type: ignore
-):
-    ...
 
 
 # GGML_API ggml_backend_t ggml_backend_metal_init(void);
