@@ -5,7 +5,7 @@
 [![PyPI - License](https://img.shields.io/pypi/l/ggml-py)](https://pypi.org/project/ggml-py/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/ggml-py)](https://pypi.org/project/ggml-py/)
 
-> ℹ️ Note this is a fork of the [original project](https://github.com/abetlen/ggml-python) which hasn't been updated July 2024. There have been a number of CVE security patches for `ggml / llama.cpp` since that date. This fork updates `ggml` to the latest. [See the llama.cpp security page for more on this](https://github.com/ggml-org/llama.cpp/security).
+> ℹ️ Note this is a fork of the [original project](https://github.com/abetlen/ggml-python) which hasn't been updated since July 2024. There have been a number of CVE security patches for `ggml / llama.cpp` since that date. This fork updates `ggml` to the latest. [See the llama.cpp security page for more on this](https://github.com/ggml-org/llama.cpp/security).
 
 Python bindings for the [`ggml`](https://github.com/ggerganov/ggml) tensor library for machine learning.
 
