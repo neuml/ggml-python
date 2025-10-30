@@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "ggml_py"
 dynamic = ["version"]
-description = "Python bindings for ggml. Fork of original project updating ggml to latest."
+description = "Python bindings for ggml. Fork of the original project to use the latest version of ggml."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
