@@ -1,42 +1,32 @@
 # Python bindings for [`ggml`](https://github.com/ggerganov/ggml)
 
-[![Documentation Status](https://readthedocs.org/projects/ggml-python/badge/?version=latest)](https://ggml-python.readthedocs.io/en/latest/?badge=latest)
-[![Tests](https://github.com/abetlen/ggml-python/actions/workflows/test.yaml/badge.svg)](https://github.com/abetlen/ggml-python/actions/workflows/test.yaml)
-[![PyPI](https://img.shields.io/pypi/v/ggml-python)](https://pypi.org/project/ggml-python/)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ggml-python)](https://pypi.org/project/ggml-python/)
-[![PyPI - License](https://img.shields.io/pypi/l/ggml-python)](https://pypi.org/project/ggml-python/)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/ggml-python)](https://pypi.org/project/ggml-python/)
+[![PyPI](https://img.shields.io/pypi/v/ggml-py)](https://pypi.org/project/ggml-py/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ggml-py)](https://pypi.org/project/ggml-py/)
+[![PyPI - License](https://img.shields.io/pypi/l/ggml-py)](https://pypi.org/project/ggml-py/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/ggml-py)](https://pypi.org/project/ggml-py/)
 
+> ℹ️ Note this is a fork of the [original project](https://github.com/abetlen/ggml-python) which hasn't been updated July 2024. There have been a number of CVE security patches for `ggml / llama.cpp` since that date. This fork updates `ggml` to the latest. [See the llama.cpp security page for more on this](https://github.com/ggml-org/llama.cpp/security).
 
 Python bindings for the [`ggml`](https://github.com/ggerganov/ggml) tensor library for machine learning.
 
-> ⚠️ Neither this project nor `ggml` currently guarantee backwards-compatibility, if you are using this library in other applications I strongly recommend pinning to specific releases in your `requirements.txt` file.
-
-# Documentation
-
-- [Getting Started](https://ggml-python.readthedocs.io/en/latest/)
-- [API Reference](https://ggml-python.readthedocs.io/en/latest/api-reference/)
-- [Examples](https://github.com/abetlen/ggml-python/tree/main/examples)
-
 # Installation
 
-
 Requirements
-- Python 3.8+
+- Python 3.10+
 - C compiler (gcc, clang, msvc, etc)
 
-You can install `ggml-python` using `pip`:
+You can install `ggml-py` using `pip`:
 
 ```bash
-pip install ggml-python
+pip install ggml-py
 ```
 
 This will compile ggml using cmake which requires a c compiler installed on your system.
-To build ggml with specific features (ie. OpenBLAS, GPU Support, etc) you can pass specific cmake options through the `cmake.args` pip install configuration setting. For example to install ggml-python with cuBLAS support you can run:
+To build ggml with specific features (ie. OpenBLAS, GPU Support, etc) you can pass specific cmake options through the `cmake.args` pip install configuration setting. For example to install ggml-py with cuBLAS support you can run:
 
 ```bash
 pip install --upgrade pip
-pip install ggml-python --config-settings=cmake.args='-DGGML_CUDA=ON'
+pip install ggml-py --config-settings=cmake.args='-DGGML_CUDA=ON'
 ```
 
 ## Options
@@ -89,10 +79,10 @@ ggml.ggml_free(ctx)
 
 # Troubleshooting
 
-If you are having trouble installing `ggml-python` or activating specific features please try to install it with the `--verbose` and `--no-cache-dir` flags to get more information about any issues:
+If you are having trouble installing `ggml-py` or activating specific features please try to install it with the `--verbose` and `--no-cache-dir` flags to get more information about any issues:
 
 ```bash
-pip install ggml-python --verbose --no-cache-dir --force-reinstall --upgrade
+pip install ggml-py --verbose --no-cache-dir --force-reinstall --upgrade
 ```
 
 # License

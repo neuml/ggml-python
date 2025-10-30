@@ -3,24 +3,18 @@ requires = ["scikit-build-core[pyproject]>=0.5.1"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "ggml_python"
+name = "ggml_py"
 dynamic = ["version"]
-description = "Python bindings for ggml"
+description = "Python bindings for ggml. Fork of original project updating ggml to latest."
 readme = "README.md"
 license = { text = "MIT" }
-authors = [
-    { name = "Andrei Betlen", email = "abetlen@gmail.com" },
-]
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.20.0",
     "typing_extensions>=4.6.3",
-    "importlib_resources>=6.4.0; python_version < '3.9'",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -56,6 +50,5 @@ convert = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/abetlen/ggml-python"
-Documentation = "https://ggml-python.readthedocs.io/en/latest/"
-Issues = "https://github.com/abetlen/ggml-python/issues"
+Homepage = "https://github.com/neuml/ggml-python"
+Issues = "https://github.com/neuml/ggml-python/issues"
