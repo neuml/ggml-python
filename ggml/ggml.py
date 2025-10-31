@@ -136,7 +136,13 @@ def load_shared_library(lib_base_name: str, base_path: pathlib.Path):
 
 module_name = "ggml"
 lib_base_name = pathlib.Path(os.path.abspath(os.path.dirname(__file__))) / "lib"
-lib = load_shared_library(module_name, lib_base_name)
+if sys.platform == "win32":
+    libs = []
+    for l in lib_base_name.iterdir():
+        if l.suffix == ".dll":
+            libs.append(load_shared_library(l.stem, lib_base_name))
+else:
+    libs = [load_shared_library(module_name, lib_base_name)]
 
 
 #####################################################
@@ -169,30 +175,41 @@ def byref(obj: CtypesCData, offset: Optional[int] = None) -> CtypesRef[CtypesCDa
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-def ctypes_function_for_shared_library(lib: ctypes.CDLL):
+def ctypes_function_for_shared_library(libraries):
     def ctypes_function(
         name: str, argtypes: List[Any], restype: Any, enabled: bool = True
     ):
         def decorator(f: F) -> F:
             if enabled:
-                func = getattr(lib, name)
-                func.argtypes = argtypes
-                func.restype = restype
-                functools.wraps(f)(func)
-                return func
-            else:
-                def f_(*args: Any, **kwargs: Any):
-                    raise RuntimeError(
-                        f"Function '{name}' is not available in the shared library (enabled=False)"
-                    )
-                return cast(F, f_)
+                for lib in libraries:
+                    try:
+                        func = getattr(lib, name)
+                        func.argtypes = argtypes
+                        func.restype = restype
+                        functools.wraps(f)(func)
+                        return func
+                    except AttributeError:
+                        pass
+
+            def f_(*args: Any, **kwargs: Any):
+                raise RuntimeError(
+                    f"Function '{name}' is not available in the shared library (enabled=False)"
+                )
+            return cast(F, f_)
 
         return decorator
 
     return ctypes_function
 
 
-ggml_function = ctypes_function_for_shared_library(lib)
+def findattr(libraries, name):
+    for lib in libraries:
+        if hasattr(lib, name):
+            return getattr(lib, name)
+
+    return None
+
+ggml_function = ctypes_function_for_shared_library(libs)
 
 
 #####################################################
@@ -8912,8 +8929,8 @@ def ggml_backend_cpu_hbm_buffer_type() -> Optional[ggml_backend_buffer_type_t]:
     ...
 
 
-if hasattr(lib, "ggml_backend_cpu_hbm_buffer_type"):
-    ggml_backend_cpu_hbm_buffer_type = lib.ggml_backend_cpu_hbm_buffer_type
+if findattr(libs, "ggml_backend_cpu_hbm_buffer_type"):
+    ggml_backend_cpu_hbm_buffer_type = findattr(libs, "ggml_backend_cpu_hbm_buffer_type")
     ggml_backend_cpu_hbm_buffer_type.argtypes = []
     ggml_backend_cpu_hbm_buffer_type.restype = ggml_backend_buffer_type_t
 
@@ -9709,7 +9726,7 @@ def ggml_backend_register(
 #####################################################
 
 
-GGML_USE_CUDA = hasattr(lib, "ggml_backend_cuda_init")
+GGML_USE_CUDA = findattr(libs, "ggml_backend_cuda_init") is not None
 
 
 GGML_CUDA_MAX_DEVICES = 16
@@ -9863,7 +9880,7 @@ def ggml_backend_cuda_unregister_host_buffer(
 #####################################################
 
 
-GGML_USE_METAL = hasattr(lib, "ggml_backend_metal_init")
+GGML_USE_METAL = findattr(libs, "ggml_backend_metal_init") is not None
 
 
 # // max memory buffers that can be mapped to the device
@@ -9978,7 +9995,7 @@ def ggml_backend_metal_capture_next_compute(backend: Union[ggml_backend_t, int],
 #####################################################
 
 
-GGML_USE_CLBLAST = hasattr(lib, "ggml_cl_init")
+GGML_USE_CLBLAST = findattr(libs, "ggml_cl_init") is not None
 
 
 # GGML_API void ggml_cl_init(void);
@@ -10136,7 +10153,7 @@ def ggml_backend_opencl_host_buffer_type() -> (
 # source: src/ggml-vulkan.h
 #####################################################
 
-GGML_USE_VULKAN = hasattr(lib, "ggml_vk_init_cpu_assist")
+GGML_USE_VULKAN = findattr(libs, "ggml_vk_init_cpu_assist") is not None
 
 # #define GGML_VK_NAME "Vulkan"
 # #define GGML_VK_MAX_DEVICES 16
@@ -10326,7 +10343,7 @@ def ggml_backend_vk_host_buffer_type() -> Optional[ggml_backend_buffer_type_t]:
 #####################################################
 
 
-GGML_USE_RPC = hasattr(lib, "ggml_backend_rpc_init")
+GGML_USE_RPC = findattr(libs, "ggml_backend_rpc_init") is not None
 
 
 #define GGML_RPC_MAX_SERVERS       16

@@ -83,9 +83,11 @@ if (APPLE)
         set(GGML_F16C "OFF" CACHE BOOL "ggml: enable F16C" FORCE)
     endif()
 
-    # Metal settings (enable for both architectures)
-    set(GGML_METAL "ON" CACHE BOOL "ggml: enable Metal" FORCE)
-    set(GGML_METAL_EMBED_LIBRARY "ON" CACHE BOOL "ggml: embed metal library" FORCE)
+    # Default Metal to OFF
+    if(NOT GGML_METAL)
+        set(GGML_METAL "OFF" CACHE BOOL "ggml: enable Metal" FORCE)
+    endif()
+
 endif()
 
 
